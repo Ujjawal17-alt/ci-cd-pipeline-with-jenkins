@@ -2,8 +2,8 @@ pipeline {
   agent any
 
   environment {
-    IMAGE_NAME = 'instantprachi/myapp'
-    // Credential ID in Jenkins for Docker Hub (username/password)
+    IMAGE_NAME = 'ujjawalcloud/myapp'
+    // Jenkins credential ID for Docker Hub (username/password or token)
     DOCKERHUB_CREDENTIALS = 'dockerhub-logintask'
   }
 
@@ -17,7 +17,6 @@ pipeline {
     stage('Build') {
       steps {
         script {
-          // prefer Jenkins-provided commit, fallback to git
           def commit = env.GIT_COMMIT ?: sh(script: 'git rev-parse --verify HEAD', returnStdout: true).trim()
           def shortSha = (commit ?: 'unknown')[0..6]
           def tag = "${env.BUILD_NUMBER}-${shortSha}"
@@ -35,7 +34,6 @@ pipeline {
           withCredentials([usernamePassword(credentialsId: env.DOCKERHUB_CREDENTIALS, usernameVariable: 'DOCKER_HUB_USER', passwordVariable: 'DOCKER_HUB_PSW')]) {
             sh 'echo $DOCKER_HUB_PSW | docker login -u $DOCKER_HUB_USER --password-stdin'
             sh "docker push ${env.FULL_IMAGE}"
-            // also push latest
             sh "docker tag ${env.FULL_IMAGE} ${env.IMAGE_NAME}:latest || true"
             sh "docker push ${env.IMAGE_NAME}:latest || true"
             sh 'docker logout'
@@ -54,4 +52,3 @@ pipeline {
     }
   }
 }
-
