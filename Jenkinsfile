@@ -2,43 +2,44 @@ pipeline {
   agent any
 
   environment {
-    // full image name will be set in the build stage (namespace/repo)
     IMAGE_NAME = 'instantprachi/myapp'
-    REGISTRY = '' // Docker Hub (default)
+    // Credential ID in Jenkins for Docker Hub (username/password)
+    DOCKERHUB_CREDENTIALS = 'dockerhub-logintask'
   }
 
   stages {
-    stage('Clone Repository') {
+    stage('Checkout') {
       steps {
-        // checkout the repository you provided
         git url: 'https://github.com/Ujjawal17-alt/ci-cd-pipeline-with-jenkins', branch: 'main'
       }
     }
 
-    stage('Build Docker Image') {
+    stage('Build') {
       steps {
         script {
-          // create a traceable tag using BUILD_NUMBER and short commit
-          def commit = env.GIT_COMMIT ?: sh(script: 'git rev-parse --short=7 HEAD', returnStdout: true).trim()
-          def tag = "${env.BUILD_NUMBER}-${commit.take(7)}"
-          def fullImage = "${env.IMAGE_NAME}:${tag}"
+          // prefer Jenkins-provided commit, fallback to git
+          def commit = env.GIT_COMMIT ?: sh(script: 'git rev-parse --verify HEAD', returnStdout: true).trim()
+          def shortSha = (commit ?: 'unknown')[0..6]
+          def tag = "${env.BUILD_NUMBER}-${shortSha}"
+          env.FULL_IMAGE = "${env.IMAGE_NAME}:${tag}"
 
-          echo "Building ${fullImage}"
-          sh "docker build -t ${fullImage} ."
-
-          // expose for later stages
-          env.FULL_IMAGE = fullImage
+          echo "Building ${env.FULL_IMAGE}"
+          sh "docker build -t ${env.FULL_IMAGE} ."
         }
       }
     }
 
-    stage('Push to Docker Hub') {
+    stage('Push') {
       steps {
-        // use Jenkins credentials binding for username/password safely
-        withCredentials([usernamePassword(credentialsId: 'dockerhub-logintask', usernameVariable: 'DOCKERHUB_USR', passwordVariable: 'DOCKERHUB_PSW')]) {
-          sh 'echo $DOCKERHUB_PSW | docker login -u $DOCKERHUB_USR --password-stdin'
-          sh 'docker push $FULL_IMAGE'
-          sh 'docker logout'
+        script {
+          withCredentials([usernamePassword(credentialsId: env.DOCKERHUB_CREDENTIALS, usernameVariable: 'DOCKER_HUB_USER', passwordVariable: 'DOCKER_HUB_PSW')]) {
+            sh 'echo $DOCKER_HUB_PSW | docker login -u $DOCKER_HUB_USER --password-stdin'
+            sh "docker push ${env.FULL_IMAGE}"
+            // also push latest
+            sh "docker tag ${env.FULL_IMAGE} ${env.IMAGE_NAME}:latest || true"
+            sh "docker push ${env.IMAGE_NAME}:latest || true"
+            sh 'docker logout'
+          }
         }
       }
     }
@@ -53,68 +54,4 @@ pipeline {
     }
   }
 }
-
       stages {
-        stage('Checkout') {
-          steps {
-            echo "Checking out ${params.GIT_URL} @ ${params.GIT_BRANCH}"
-            // perform a Git checkout so env.GIT_COMMIT is populated when possible
-            git branch: params.GIT_BRANCH, url: params.GIT_URL
-          }
-        }
-
-        stage('Build Docker Image') {
-          steps {
-            script {
-              // Prefer Jenkins-provided GIT_COMMIT; fallback to git command for short SHA
-              def commit = env.GIT_COMMIT
-              if (!commit) {
-                commit = sh(script: 'git rev-parse --verify HEAD', returnStdout: true).trim()
-              }
-              def shortSha = (commit ?: 'unknown').take(7)
-
-              def tag = "${params.DOCKER_TAG}-${env.BUILD_NUMBER}-${shortSha}"
-              def fullImage = "${params.IMAGE_NAME}:${tag}"
-              echo "Building image ${fullImage}"
-              // Build the image using Docker Pipeline
-              docker.build(fullImage)
-
-              // store the built image info for later stages
-              env.BUILT_IMAGE = fullImage
-              env.IMAGE_TAG = tag
-            }
-          }
-        }
-
-        stage('Push to Docker Hub') {
-          steps {
-            script {
-              docker.withRegistry(env.REGISTRY, env.DOCKERHUB_CREDENTIALS) {
-                def fullImage = env.BUILT_IMAGE
-                echo "Pushing ${fullImage} to Docker Hub"
-                // push the versioned build tag
-                docker.image(fullImage).push()
-
-                // also tag and push 'latest' so the image namespace has a stable tag
-                try {
-                  sh "docker tag ${fullImage} ${params.IMAGE_NAME}:latest"
-                  docker.image("${params.IMAGE_NAME}:latest").push()
-                } catch (err) {
-                  echo "Could not tag or push 'latest': ${err}"
-                }
-              }
-            }
-          }
-        }
-      }
-
-      post {
-        success {
-          echo "Image pushed: ${env.BUILT_IMAGE}"
-        }
-        failure {
-          echo "Pipeline failed"
-        }
-      }
-    }
-
