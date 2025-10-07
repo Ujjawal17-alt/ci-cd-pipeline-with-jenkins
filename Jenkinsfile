@@ -2,8 +2,8 @@ pipeline {
   agent any
 
   environment {
-    IMAGE_NAME = 'ujjawalcloud/myapp'
-    // Jenkins credential ID for Docker Hub (username/password or token)
+    IMAGE_NAME = 'ujjawal447/myapp'  // Use your own Docker Hub repo
+    // Jenkins credential ID for Docker Hub
     DOCKERHUB_CREDENTIALS = 'dockerhub-logintask'
   }
 
